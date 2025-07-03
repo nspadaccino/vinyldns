@@ -91,13 +91,19 @@ class VinylDNSModule(environment: Environment, configuration: Configuration)
     startApp.unsafeRunSync()
   }
 
-  private def authenticator(): Authenticator =
-    /**
-      * Why not load config here you ask?  Well, there is some ugliness in the LdapAuthenticator
-      * that I am not looking to undo at this time.  There are private classes
-      * that do some wrapping.  It all seems to work, so I am leaving it alone
-      * to complete the Play framework upgrade
-      */
-    LdapAuthenticator(settings)
+  private def authenticator(): Authenticator = {
+    // Read from config: "directory.backend" = "ldap" or "graph"
+    val backend = configuration.getOptional[String]("directory.backend").getOrElse("ldap")
+    backend match {
+      case "graph" =>
+        val tenantId = configuration.get[String]("oidc.tenant-id")
+        val clientId = configuration.get[String]("oidc.client-id")
+        val clientSecret = configuration.get[String]("oidc.secret")
+        val graphUserService = new GraphUserController(tenantId, clientId, clientSecret)
+        new GraphAuthenticator(graphUserService)
+      case _ =>
+        LdapAuthenticator(settings)
+    }
+  }
 }
 // $COVERAGE-ON$

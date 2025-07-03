@@ -59,7 +59,7 @@ case class ServiceAccount(domain: String, name: String, password: String)
 
 // $COVERAGE-OFF$
 object LdapAuthenticator {
-  type ContextCreator = (String, String) => Either[LdapException, DirContext]
+  type ContextCreator = (String, String) => Either[DirectoryException, DirContext]
   private val logger = LoggerFactory.getLogger("LdapAuthenticator")
 
   /**
@@ -84,7 +84,7 @@ object LdapAuthenticator {
         case Success(dirContext) => Right(dirContext)
         case Failure(authEx: javax.naming.AuthenticationException) =>
           logger.error("LDAP Authentication Exception", authEx)
-          Left(InvalidCredentials(username))
+          Left(InvalidCredentialsException(username))
         case Failure(e) =>
           Left(LdapServiceException(e.toString))
       }
@@ -115,7 +115,7 @@ object LdapAuthenticator {
         dirContext: DirContext,
         organization: String,
         lookupUserName: String
-    ): Either[LdapException, LdapUserDetails] =
+    ): Either[DirectoryException, LdapUserDetails] =
       try {
         val searchControls = new SearchControls()
         searchControls.setSearchScope(2)
@@ -148,7 +148,7 @@ object LdapAuthenticator {
         searchDomain: LdapSearchDomain,
         username: String,
         password: String
-    ): Either[LdapException, LdapUserDetails] = {
+    ): Either[DirectoryException, LdapUserDetails] = {
 
       // Login as the service account
       val qualifiedName =
@@ -171,7 +171,7 @@ object LdapAuthenticator {
         searchDomain: LdapSearchDomain,
         user: String,
         serviceAccount: ServiceAccount
-    ): Either[LdapException, LdapUserDetails] = {
+    ): Either[DirectoryException, LdapUserDetails] = {
 
       // User lookup is done using the service account
       val qualifiedName =
@@ -208,15 +208,15 @@ object LdapAuthenticator {
   }
 }
 
-sealed abstract class LdapException(message: String) extends Exception(message)
-
-final case class UserDoesNotExistException(message: String) extends LdapException(message)
-final case class LdapServiceException(errorMessage: String)
-    extends LdapException(s"Encountered error communicating with LDAP service: $errorMessage")
-final case class InvalidCredentials(username: String)
-    extends LdapException(s"Provided credentials were invalid for user [$username].")
-final case class NoLdapSearchDomainsConfigured()
-    extends LdapException("No LDAP search domains were configured so user lookup is impossible.")
+//sealed abstract class LdapException(message: String) extends Exception(message)
+//
+//final case class UserDoesNotExistException(message: String) extends LdapException(message)
+//final case class LdapServiceException(errorMessage: String)
+//    extends LdapException(s"Encountered error communicating with LDAP service: $errorMessage")
+//final case class InvalidCredentials(username: String)
+//    extends LdapException(s"Provided credentials were invalid for user [$username].")
+//final case class NoLdapSearchDomainsConfigured()
+//    extends LdapException("No LDAP search domains were configured so user lookup is impossible.")
 
 /**
   * Top level ldap authenticator that tries authenticating on multiple domains. Authentication is
@@ -250,9 +250,9 @@ class LdapAuthenticator(
   private def findUserDetails(
       domains: List[LdapSearchDomain],
       userName: String,
-      f: LdapSearchDomain => Either[LdapException, LdapUserDetails],
+      f: LdapSearchDomain => Either[DirectoryException, LdapUserDetails],
       allDomainConnectionsUp: Boolean
-  ): Either[LdapException, LdapUserDetails] =
+  ): Either[DirectoryException, LdapUserDetails] =
     domains match {
       case Nil =>
         if (allDomainConnectionsUp)
@@ -274,15 +274,15 @@ class LdapAuthenticator(
         }
     }
 
-  def authenticate(username: String, password: String): Either[LdapException, LdapUserDetails] =
+  def authenticate(username: String, password: String): Either[DirectoryException, UserDetails] =
     // Need to check domains here due to recursive nature of findUserDetails
-    if (searchBase.isEmpty) Left(NoLdapSearchDomainsConfigured())
+    if (searchBase.isEmpty) Left(NoSearchDomainsConfiguredException)
     else
       findUserDetails(searchBase, username, authenticator.authenticate(_, username, password), true)
 
-  def lookup(username: String): Either[LdapException, LdapUserDetails] =
+  def lookup(username: String): Either[DirectoryException, LdapUserDetails] =
     // Need to check domains here due to recursive nature of findUserDetails
-    if (searchBase.isEmpty) Left(NoLdapSearchDomainsConfigured())
+    if (searchBase.isEmpty) Left(NoSearchDomainsConfiguredException)
     else
       findUserDetails(searchBase, username, authenticator.lookup(_, username, serviceAccount), true)
 
@@ -297,7 +297,7 @@ class LdapAuthenticator(
     }.asHealthCheck(classOf[LdapAuthenticator])
 
   // List[User] => List[Either[LdapException, LdapUserDetails]] => List[User]
-  def getUsersNotInLdap(users: List[User]): IO[List[User]] =
+  def getUsersNotInDirectory(users: List[User]): IO[List[User]] =
     users
       .map { u =>
         IO(lookup(u.userName)).map {
@@ -309,12 +309,12 @@ class LdapAuthenticator(
       .map(_.flatten)
 }
 
-trait Authenticator {
-  def authenticate(username: String, password: String): Either[LdapException, LdapUserDetails]
-  def lookup(username: String): Either[LdapException, LdapUserDetails]
-  def getUsersNotInLdap(usernames: List[User]): IO[List[User]]
-  def healthCheck(): HealthCheck
-}
+//trait Authenticator {
+//  def authenticate(username: String, password: String): Either[LdapException, LdapUserDetails]
+//  def lookup(username: String): Either[LdapException, LdapUserDetails]
+//  def getUsersNotInLdap(usernames: List[User]): IO[List[User]]
+//  def healthCheck(): HealthCheck
+//}
 
 /**
   * Top level authenticator that has a bypass user for testing
@@ -344,7 +344,7 @@ class TestAuthenticator(authenticator: Authenticator) extends Authenticator {
     Some("User")
   )
 
-  def authenticate(username: String, password: String): Either[LdapException, LdapUserDetails] =
+  def authenticate(username: String, password: String): Either[DirectoryException, UserDetails] =
     (username, password) match {
       case ("recordPagingTestUser", "testpassword") => Right(recordPagingTestUserDetails)
       case ("testuser", "testpassword") => Right(testUserDetails)
@@ -352,7 +352,7 @@ class TestAuthenticator(authenticator: Authenticator) extends Authenticator {
       case _ => authenticator.authenticate(username, password)
     }
 
-  def lookup(username: String): Either[LdapException, LdapUserDetails] =
+  def lookup(username: String): Either[DirectoryException, UserDetails] =
     username match {
       case "recordPagingTestUser" => Right(recordPagingTestUserDetails)
       case "testuser" => Right(testUserDetails)
@@ -362,8 +362,8 @@ class TestAuthenticator(authenticator: Authenticator) extends Authenticator {
 
   def healthCheck(): HealthCheck = authenticator.healthCheck()
 
-  def getUsersNotInLdap(users: List[User]): IO[List[User]] =
-    authenticator.getUsersNotInLdap(users)
+  def getUsersNotInDirectory(users: List[User]): IO[List[User]] =
+    authenticator.getUsersNotInDirectory(users)
 }
 
 case class LdapSearchDomain(organization: String, domainName: String)

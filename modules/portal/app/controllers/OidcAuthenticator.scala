@@ -18,7 +18,6 @@ package controllers
 
 import java.net.{URI, URL}
 import java.util.{Date, UUID}
-
 import akka.http.scaladsl.model.Uri
 import akka.http.scaladsl.model.Uri.Query
 import cats.data.EitherT
@@ -26,7 +25,7 @@ import cats.effect.IO
 import cats.implicits._
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.oauth2.sdk._
-import com.nimbusds.jose.jwk.source.RemoteJWKSet
+import com.nimbusds.jose.jwk.source.{JWKSource, JWKSourceBuilder}
 import com.nimbusds.jose.proc.{JWSVerificationKeySelector, SimpleSecurityContext}
 import com.nimbusds.jwt.proc.{DefaultJWTProcessor, JWTProcessor}
 import com.nimbusds.jwt._
@@ -35,6 +34,7 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse
 import com.nimbusds.oauth2.sdk.id.ClientID
 import com.nimbusds.openid.connect.sdk._
 import controllers.VinylDNS.UserDetails
+
 import javax.inject.{Inject, Singleton}
 import org.slf4j.{Logger, LoggerFactory}
 import play.api.Configuration
@@ -44,7 +44,7 @@ import pureconfig.generic.auto._
 
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success, Try}
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import pureconfig.ConfigSource
 import java.io.{PrintWriter, StringWriter}
 
@@ -74,6 +74,7 @@ object OidcAuthenticator {
 
   final case class ErrorResponse(code: Int, message: String)
 }
+
 @Singleton
 class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configuration) {
 
@@ -96,12 +97,15 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
   lazy val jwtProcessor: JWTProcessor[SimpleSecurityContext] = {
     val processor = new DefaultJWTProcessor[SimpleSecurityContext]()
 
-    val keySource =
-      new RemoteJWKSet[SimpleSecurityContext](new URL(oidcInfo.jwksEndpoint))
+    // Explicitly type the JWKSource to SimpleSecurityContext
+    val keySource: JWKSource[SimpleSecurityContext] =
+      JWKSourceBuilder.create(new URL(oidcInfo.jwksEndpoint))
+        .build()
+        .asInstanceOf[JWKSource[SimpleSecurityContext]]
 
     val expectedJWSAlg = JWSAlgorithm.RS256
+    val keySelector = new JWSVerificationKeySelector[SimpleSecurityContext](expectedJWSAlg, keySource)
 
-    val keySelector = new JWSVerificationKeySelector(expectedJWSAlg, keySource)
     processor.setJWSKeySelector(keySelector)
     processor
   }
@@ -167,7 +171,7 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
 
   def isValidIdToken(claimsSet: JWTClaimsSet): Boolean = {
     val tid = getStringFieldOption(claimsSet, "tid")
-    val aid = Try(List(claimsSet.getStringListClaim("aud").asScala).flatten).getOrElse(List())
+    val aid = Try(Option(claimsSet.getStringListClaim("aud")).map(_.asScala.toList).getOrElse(List.empty)).getOrElse(List.empty)
 
     // forall will return true if tenant id is not configured
     // if it is configured match to the tenant id returned
@@ -189,14 +193,13 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
       case Failure(e) =>
         val errorMessage = new StringWriter
         e.printStackTrace(new PrintWriter(errorMessage))
-        logger.error(s"oidc session token parse error: ${errorMessage.toString.replaceAll("\n",";").replaceAll("\t"," ")}")
+        logger.error(s"oidc session token parse error: ${e.getMessage}")
         None
     }
 
     val isValid = claimsSet.exists(isValidIdToken)
     val username = claimsSet.flatMap(getStringFieldOption(_, oidcInfo.jwtUsernameField))
     if (isValid) {
-      // only return username if the token is valid
       if (username.isEmpty) {
         logger.error("valid id token is missing username")
       }
@@ -227,8 +230,8 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
       case _ => Left(ErrorResponse(500, "Unable to parse OIDC token response"))
     }
 
-    def getClaimSet(oidcTokenResposne: OIDCTokenResponse): Either[ErrorResponse, JWTClaimsSet] = {
-      val idToken = oidcTokenResposne.getOIDCTokens.getIDToken
+    def getClaimSet(oidcTokenResponse: OIDCTokenResponse): Either[ErrorResponse, JWTClaimsSet] = {
+      val idToken = oidcTokenResponse.getOIDCTokens.getIDToken
 
       oidcTry(jwtProcessor.process(idToken, sc)).flatMap { claims =>
         if (isValidIdToken(claims)) {
@@ -247,7 +250,7 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
   }
 
   def oidcCallback(code: AuthorizationCode, loginId: String)(
-      implicit executionContext: ExecutionContext
+    implicit executionContext: ExecutionContext
   ): EitherT[IO, ErrorResponse, JWTClaimsSet] =
     EitherT {
       val redirectUriString = s"${oidcInfo.redirectUri}/callback/${loginId}"
@@ -265,7 +268,7 @@ class OidcAuthenticator @Inject() (wsClient: WSClient, configuration: Configurat
       .leftMap { err =>
         val errorMessage = new StringWriter
         err.printStackTrace(new PrintWriter(errorMessage))
-        logger.error(s"Unexpected error in OIDC flow: ${errorMessage.toString.replaceAll("\n",";").replaceAll("\t"," ")}")
+        logger.error(s"Unexpected error in OIDC flow: ${err.getMessage}")
         ErrorResponse(500, err.getMessage)
       }
 }

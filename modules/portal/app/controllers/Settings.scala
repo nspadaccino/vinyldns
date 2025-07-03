@@ -52,7 +52,7 @@ class Settings(private val config: Configuration) {
   val ldapSyncPollingInterval: FiniteDuration = config
     .getOptional[Int]("LDAP.user-sync.hours-polling-interval")
     .getOrElse(24)
-    .hours
+    .minutes
 
   val portalTestLogin: Boolean = config.getOptional[Boolean]("portal.test_login").getOrElse(false)
 

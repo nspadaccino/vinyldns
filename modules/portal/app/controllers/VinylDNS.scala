@@ -399,7 +399,7 @@ class VinylDNS @Inject() (
         .recover {
           case _: UserDoesNotExistException =>
             NotFound(s"User $username was not found")
-          case le: LdapException =>
+          case le: DirectoryException =>
             InternalServerError(le.getMessage)
         }
   }
@@ -411,7 +411,7 @@ class VinylDNS @Inject() (
         Redirect("/login").flashing(
           VinylDNS.Alerts.error("Authentication failed, please try again")
         )
-      case Left(error: LdapException) =>
+      case Left(error: DirectoryException) =>
         logger.error(
           "An unexpected error occurred when authenticating, please contact your VinylDNS " +
             "administrators",
@@ -421,14 +421,27 @@ class VinylDNS @Inject() (
           VinylDNS.Alerts
             .error("Authentication failed, please contact your VinylDNS administrators")
         )
-      case Right(userDetails: LdapUserDetails) =>
-        logger.info(
-          s"user [${userDetails.username}] logged in with ldap path [${userDetails.nameInNamespace}]"
-        )
-        val user = processLoginWithDetails(userDetails).unsafeRunSync()
-        logger.info(s"--LOGIN-- user [${user.userName}] logged in with id [${user.id}]")
-        Redirect("/index")
-          .withSession("username" -> user.userName, "accessKey" -> user.accessKey)
+      case Right(userDetails) =>
+        userDetails match {
+          case ldap: LdapUserDetails =>
+            logger.info(
+              s"user [${ldap.username}] logged in with ldap path [${ldap.nameInNamespace}]"
+            )
+            val user = processLoginWithDetails(ldap).unsafeRunSync()
+            logger.info(s"--LOGIN-- user [${user.userName}] logged in with id [${user.id}]")
+            Redirect("/index")
+              .withSession("username" -> user.userName, "accessKey" -> user.accessKey)
+
+          case other =>
+            // Handles GraphUserDetails or any other UserDetails implementation
+            logger.warn(
+              s"User [${other.username}] authenticated, but login processing for this user type is not implemented."
+            )
+            Redirect("/login").flashing(
+              VinylDNS.Alerts
+                .error("Authentication succeeded, but user type is not supported for login.")
+            )
+        }
     }
 
   def processLoginWithDetails(userDetails: UserDetails): IO[User] =
