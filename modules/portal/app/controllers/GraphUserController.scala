@@ -52,16 +52,25 @@ class GraphUserController(
   private val graphClient = new GraphServiceClient(credential, scopes: _*)
 
   def lookup(username: String): Either[DirectoryException, GraphUserDetails] = {
+    val selectFields = Array("userPrincipalName", "mail", "givenName", "surname", "id")
     logger.info(s"Looking up user in Microsoft Graph: $username")
+    logger.debug(s"Using select fields: ${selectFields.mkString(",")}")
+
     try {
       val user: User = graphClient
         .users()
         .byUserId(username)
         .get(requestConfig => {
-          requestConfig.queryParameters.select = Array(
-            "userPrincipalName", "mail", "givenName", "surname", "id"
-          )
+          requestConfig.queryParameters.select = selectFields
         })
+
+      logger.info(s"Graph API returned user: " +
+        s"userPrincipalName=${user.getUserPrincipalName}, " +
+        s"mail=${user.getMail}, " +
+        s"givenName=${user.getGivenName}, " +
+        s"surname=${user.getSurname}, " +
+        s"id=${user.getId}")
+
       Right(
         GraphUserDetails(
           username = Option(user.getUserPrincipalName).getOrElse(username),
@@ -72,16 +81,26 @@ class GraphUserController(
         )
       )
     } catch {
-      case ex: ApiException if ex.getResponseStatusCode == 404 =>
-        Left(UserDoesNotExistException(s"User $username not found in Microsoft Graph"))
+      case ex: ApiException =>
+        logger.error(
+          s"Graph API exception for user '$username': status=${ex.getResponseStatusCode}, message=${ex.getMessage}",
+          ex
+        )
+        if (ex.getResponseStatusCode == 404)
+          Left(UserDoesNotExistException(s"User $username not found in Microsoft Graph"))
+        else
+          Left(GraphServiceException(s"Graph API error for $username: status=${ex.getResponseStatusCode}, message=${ex.getMessage}"))
       case ex: Exception =>
+        logger.error(s"Unexpected exception during Graph lookup for user '$username': ${ex.getMessage}", ex)
         Left(GraphServiceException(s"Graph API error for $username: ${ex.getMessage}"))
     }
   }
 
   def getUsersNotInGraph(usernames: List[String]): List[String] = {
     usernames.par.filter { username =>
-      lookup(username).isLeft
+      val result = lookup(username)
+      logger.info(s"Lookup result for $username: $result")
+      result.isLeft
     }.toList
   }
 }
