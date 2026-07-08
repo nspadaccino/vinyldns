@@ -138,6 +138,10 @@ final case class ZoneDiscoveryError(name: String, fatal: Boolean = false)
       "If zone exists, then it must be connected to in VinylDNS."
 }
 
+final case class ZoneWriteDisabledError(zoneName: String) extends DomainValidationError {
+  def message: String = s"""Zone "$zoneName" is currently disabled for writes."""
+}
+
 final case class RecordAlreadyExists(name: String) extends DomainValidationError {
   def message: String =
     s"""RecordName "$name" already exists. """ +

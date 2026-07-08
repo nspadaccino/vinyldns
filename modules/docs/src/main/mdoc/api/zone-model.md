@@ -22,7 +22,7 @@ section: "api"
 
 field         | type        | description |
  ------------ | :---------- | :---------- |
-status        | string      | *Active* - the zone is connected and ready for use; *Syncing* - the zone is currently syncing with the DNS backend and is not available until syncing is complete. |
+status        | string      | *Active* - the zone is connected and ready for use; *Syncing* - the zone is currently syncing with the DNS backend and is not available until syncing is complete; *Disabled* - writes to the zone are paused and DNS changes are rejected until writes are re-enabled (see [Disable / Enable Zone Writes](toggle-zone-writes.html)). |
 updated       | date-time   | The last time the zone was changed.  Note: this does not include changes to record sets, only the zone entity itself |
 name          | string      | The name of the zone |
 adminGroupId  | string      | The id of the administrators group for the zone |

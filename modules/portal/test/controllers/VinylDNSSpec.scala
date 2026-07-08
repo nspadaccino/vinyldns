@@ -1953,6 +1953,64 @@ class VinylDNSSpec extends Specification with Mockito with TestApplicationData w
       }
     }
 
+    ".disableZone" should {
+      "return unauthorized (401) if requesting user is not logged in" in new WithApplication(app) {
+        val client = mock[WSClient]
+        val underTest = withClient(client)
+        val result =
+          underTest.disableZone(hobbitZoneId)(FakeRequest(POST, s"/api/zones/$hobbitZoneId/disable"))
+
+        status(result) mustEqual 401
+        hasCacheHeaders(result)
+        contentAsString(result) must beEqualTo("You are not logged in. Please login to continue.")
+      }
+      "return forbidden (403) if user account is locked" in new WithApplication(app) {
+        val client = mock[WSClient]
+        val underTest = withLockedClient(client)
+        val result = underTest.disableZone(hobbitZoneId)(
+          FakeRequest(POST, s"/api/zones/$hobbitZoneId/disable").withSession(
+            "username" -> lockedFrodoUser.userName,
+            "accessKey" -> lockedFrodoUser.accessKey
+          )
+        )
+
+        status(result) mustEqual 403
+        hasCacheHeaders(result)
+        contentAsString(result) must beEqualTo(
+          s"User account for `${lockedFrodoUser.userName}` is locked."
+        )
+      }
+    }
+
+    ".enableZone" should {
+      "return unauthorized (401) if requesting user is not logged in" in new WithApplication(app) {
+        val client = mock[WSClient]
+        val underTest = withClient(client)
+        val result =
+          underTest.enableZone(hobbitZoneId)(FakeRequest(POST, s"/api/zones/$hobbitZoneId/enable"))
+
+        status(result) mustEqual 401
+        hasCacheHeaders(result)
+        contentAsString(result) must beEqualTo("You are not logged in. Please login to continue.")
+      }
+      "return forbidden (403) if user account is locked" in new WithApplication(app) {
+        val client = mock[WSClient]
+        val underTest = withLockedClient(client)
+        val result = underTest.enableZone(hobbitZoneId)(
+          FakeRequest(POST, s"/api/zones/$hobbitZoneId/enable").withSession(
+            "username" -> lockedFrodoUser.userName,
+            "accessKey" -> lockedFrodoUser.accessKey
+          )
+        )
+
+        status(result) mustEqual 403
+        hasCacheHeaders(result)
+        contentAsString(result) must beEqualTo(
+          s"User account for `${lockedFrodoUser.userName}` is locked."
+        )
+      }
+    }
+
 
     ".listRecordSets" should {
       "return unauthorized (401) if requesting user is not logged in" in new WithApplication(app) {

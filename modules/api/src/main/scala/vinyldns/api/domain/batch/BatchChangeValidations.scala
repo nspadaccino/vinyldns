@@ -34,7 +34,7 @@ import vinyldns.core.domain.record._
 import vinyldns.core.domain._
 import vinyldns.core.domain.batch.{BatchChange, BatchChangeApprovalStatus, OwnerType, RecordKey, RecordKeyData}
 import vinyldns.core.domain.membership.Group
-import vinyldns.core.domain.zone.Zone
+import vinyldns.core.domain.zone.{Zone, ZoneStatus}
 import scala.util.matching.Regex
 
 trait BatchChangeValidationsAlgebra {
@@ -315,6 +315,12 @@ class BatchChangeValidations(
     else
       ().validNel
 
+  def zoneIsNotWriteDisabled(zone: Zone): SingleValidation[Unit] =
+    if (zone.status == ZoneStatus.Disabled)
+      ZoneWriteDisabledError(zone.name).invalidNel
+    else
+      ().validNel
+
   def matchRecordData(existingRecordSetData: List[RecordData], recordData: RecordData): Boolean = {
     existingRecordSetData.par.exists { rd =>
       rd == recordData
@@ -370,13 +376,15 @@ class BatchChangeValidations(
       change
     }
 
-    val validations = groupedChanges.getExistingRecordSet(updatedChange.recordKey) match {
-      case Some(rs) =>
-        userCanDeleteRecordSet(updatedChange, auth, rs.ownerGroupId, rs.records) |+|
-          zoneDoesNotRequireManualReview(updatedChange, isApproved)
-      case None =>
-        if (isSameRecordUpdateInBatch) InvalidUpdateRequest(updatedChange.inputChange.inputName).invalidNel else ().validNel
-    }
+    val validations = zoneIsNotWriteDisabled(updatedChange.zone) |+| (
+      groupedChanges.getExistingRecordSet(updatedChange.recordKey) match {
+        case Some(rs) =>
+          userCanDeleteRecordSet(updatedChange, auth, rs.ownerGroupId, rs.records) |+|
+            zoneDoesNotRequireManualReview(updatedChange, isApproved)
+        case None =>
+          if (isSameRecordUpdateInBatch) InvalidUpdateRequest(updatedChange.inputChange.inputName).invalidNel else ().validNel
+      }
+    )
 
     validations.map(_ => updatedChange)
   }
@@ -411,7 +419,7 @@ class BatchChangeValidations(
       }
     }
 
-    val validations = typedValidations |+| commonValidations
+    val validations = zoneIsNotWriteDisabled(change.zone) |+| typedValidations |+| commonValidations
 
     validations.map(_ => change)
   }
@@ -443,7 +451,7 @@ class BatchChangeValidations(
       change
     }
 
-    val validations =
+    val validations = zoneIsNotWriteDisabled(updatedChange.zone) |+| (
       groupedChanges.getExistingRecordSet(updatedChange.recordKey) match {
         case Some(rs) =>
           val adds = groupedChanges.getProposedAdds(updatedChange.recordKey).toList
@@ -452,6 +460,7 @@ class BatchChangeValidations(
         case None =>
           if(isSameRecordUpdateInBatch) InvalidUpdateRequest(updatedChange.inputChange.inputName).invalidNel else ().validNel
       }
+    )
 
     validations.map(_ => updatedChange)
   }
@@ -498,7 +507,8 @@ class BatchChangeValidations(
     }
 
     val validations =
-      typedValidations |+|
+      zoneIsNotWriteDisabled(change.zone) |+|
+        typedValidations |+|
         commonValidations |+|
         noIncompatibleRecordExists(change, groupedChanges) |+|
         userCanAddRecordSet(change, auth) |+|

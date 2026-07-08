@@ -93,6 +93,8 @@
                 <button id="refresh-records-button" class="btn btn-default" ng-click="refreshRecords()"><span class="fa fa-refresh"></span> Refresh</button>
                 <button id="create-record-button" class="btn btn-default" ng-if="canReadZone && (zoneInfo.accessLevel == 'Delete' || canCreateRecordsViaAcl())" ng-click="createRecord(defaultTtl)"><span class="fa fa-plus"></span> Create Record Set</button>
                 <button id="zone-sync-button" class="btn btn-default mb-control" ng-if="zoneInfo.accessLevel=='Delete'" data-toggle="modal" data-target="#mb-sync"><span class="fa fa-exchange"></span> Sync Zone</button>
+                <button id="zone-disable-button" class="btn btn-default mb-control" ng-if="zoneInfo.accessLevel=='Delete' && zoneInfo.status != 'Disabled'" data-toggle="modal" data-target="#mb-disable"><span class="fa fa-lock"></span> Disable Writes</button>
+                <button id="zone-enable-button" class="btn btn-default mb-control" ng-if="zoneInfo.accessLevel=='Delete' && zoneInfo.status == 'Disabled'" data-toggle="modal" data-target="#mb-enable"><span class="fa fa-unlock"></span> Enable Writes</button>
             </div>
         </div>
 
@@ -419,3 +421,50 @@
     </div>
 </div>
     <!-- END MESSAGE MODAL-->
+
+    <!-- DISABLE WRITES MODAL-->
+<div class="fade in modal" data-sound="alert" id="mb-disable">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+              <h4>Disable Writes?</h4>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to disable writes to {{ zoneInfo.name }}? All record and batch
+                    changes to this zone will be rejected until writes are re-enabled. The zone will
+                    remain readable.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <div class="pull-right">
+                    <button id="zone-disable-yes-button" class="btn btn-info" data-dismiss="modal" ng-click="disableZoneWrites()">Yes</button>
+                    <button class="btn btn-primary" data-dismiss="modal">No</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- END DISABLE WRITES MODAL-->
+
+    <!-- ENABLE WRITES MODAL-->
+<div class="fade in modal" data-sound="alert" id="mb-enable">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+              <h4>Enable Writes?</h4>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to re-enable writes to {{ zoneInfo.name }}? Record and batch
+                    changes to this zone will be accepted again.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <div class="pull-right">
+                    <button id="zone-enable-yes-button" class="btn btn-info" data-dismiss="modal" ng-click="enableZoneWrites()">Yes</button>
+                    <button class="btn btn-primary" data-dismiss="modal">No</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- END ENABLE WRITES MODAL-->

@@ -121,6 +121,14 @@ angular.module('service.records', [])
             return $http.post("/api/zones/"+zid+"/sync", {}, {headers: utilityService.getCsrfHeader()});
         };
 
+        this.disableZone = function (zid) {
+            return $http.post("/api/zones/"+zid+"/disable", {}, {headers: utilityService.getCsrfHeader()});
+        };
+
+        this.enableZone = function (zid) {
+            return $http.post("/api/zones/"+zid+"/enable", {}, {headers: utilityService.getCsrfHeader()});
+        };
+
         this.listRecordSetChanges = function (zid, maxItems, startFrom) {
             var url = '/api/zones/' + zid + '/recordsetchanges';
             var params = {

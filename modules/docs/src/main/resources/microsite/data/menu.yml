@@ -134,6 +134,9 @@ options:
       - title: Sync Zone
         url: api/sync-zone.html
         menu_section: zoneapireference
+      - title: Disable / Enable Zone Writes
+        url: api/toggle-zone-writes.html
+        menu_section: zoneapireference
       - title: List Zone Changes
         url: api/list-zone-changes.html
         menu_section: zoneapireference

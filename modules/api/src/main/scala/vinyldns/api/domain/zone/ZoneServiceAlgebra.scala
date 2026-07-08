@@ -33,6 +33,12 @@ trait ZoneServiceAlgebra {
 
   def syncZone(zoneId: String, auth: AuthPrincipal): Result[ZoneCommandResult]
 
+  def updateZoneStatus(
+      zoneId: String,
+      writeDisabled: Boolean,
+      auth: AuthPrincipal
+  ): Result[ZoneCommandResult]
+
   def getZone(zoneId: String, auth: AuthPrincipal): Result[ZoneInfo]
 
   def getCommonZoneDetails(zoneId: String, auth: AuthPrincipal): Result[ZoneDetails]

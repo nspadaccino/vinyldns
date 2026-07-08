@@ -721,6 +721,81 @@ class ZoneServiceSpec
       val error = underTest.syncZone(okZone.id, noAuth).value.unsafeRunSync().swap.toOption.get
       error shouldBe a[NotAuthorizedError]
     }
+
+    "return an error if the zone is disabled for writes" in {
+      val disabledZone = okZone.copy(status = ZoneStatus.Disabled)
+      doReturn(IO.pure(Some(disabledZone))).when(mockZoneRepo).getZone(anyString)
+
+      val error = underTest.syncZone(disabledZone.id, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe a[ZoneUnavailableError]
+    }
+  }
+
+  "Updating a zone's write status" should {
+    "queue an Update change setting status to Disabled when disabling" in {
+      doReturn(IO.pure(Some(okZone))).when(mockZoneRepo).getZone(anyString)
+
+      val resultChange: ZoneChange = underTest
+        .updateZoneStatus(okZone.id, writeDisabled = true, okAuth)
+        .map(_.asInstanceOf[ZoneChange])
+        .value
+        .unsafeRunSync()
+        .toOption
+        .get
+
+      resultChange.zone.id shouldBe okZone.id
+      resultChange.changeType shouldBe ZoneChangeType.Update
+      resultChange.status shouldBe ZoneChangeStatus.Pending
+      resultChange.zone.status shouldBe ZoneStatus.Disabled
+    }
+
+    "queue an Update change setting status to Active when enabling" in {
+      val disabledZone = okZone.copy(status = ZoneStatus.Disabled)
+      doReturn(IO.pure(Some(disabledZone))).when(mockZoneRepo).getZone(anyString)
+
+      val resultChange: ZoneChange = underTest
+        .updateZoneStatus(disabledZone.id, writeDisabled = false, okAuth)
+        .map(_.asInstanceOf[ZoneChange])
+        .value
+        .unsafeRunSync()
+        .toOption
+        .get
+
+      resultChange.zone.status shouldBe ZoneStatus.Active
+    }
+
+    "allow a super user to toggle the write status" in {
+      doReturn(IO.pure(Some(okZone))).when(mockZoneRepo).getZone(anyString)
+
+      val resultChange: ZoneChange = underTest
+        .updateZoneStatus(okZone.id, writeDisabled = true, superUserAuth)
+        .map(_.asInstanceOf[ZoneChange])
+        .value
+        .unsafeRunSync()
+        .toOption
+        .get
+
+      resultChange.zone.status shouldBe ZoneStatus.Disabled
+    }
+
+    "return a NotAuthorizedError if the user cannot change the zone" in {
+      doReturn(IO.pure(Some(okZone))).when(mockZoneRepo).getZone(anyString)
+
+      val noAuth = AuthPrincipal(TestDataLoader.okUser, Seq())
+
+      val error =
+        underTest.updateZoneStatus(okZone.id, writeDisabled = true, noAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe a[NotAuthorizedError]
+    }
+
+    "return an InvalidRequest if the zone is currently syncing" in {
+      val syncingZone = okZone.copy(status = ZoneStatus.Syncing)
+      doReturn(IO.pure(Some(syncingZone))).when(mockZoneRepo).getZone(anyString)
+
+      val error =
+        underTest.updateZoneStatus(syncingZone.id, writeDisabled = true, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe an[InvalidRequest]
+    }
   }
 
   "Getting a Zone" should {

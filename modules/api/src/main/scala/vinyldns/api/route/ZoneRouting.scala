@@ -189,6 +189,20 @@ class ZoneRoute(
         }
       }
     } ~
+    path("zones" / Segment / "disable") { id =>
+      (post & monitor("Endpoint.disableZone")) {
+        authenticateAndExecute(zoneService.updateZoneStatus(id, writeDisabled = true, _)) { chg =>
+          complete(StatusCodes.Accepted, chg)
+        }
+      }
+    } ~
+    path("zones" / Segment / "enable") { id =>
+      (post & monitor("Endpoint.enableZone")) {
+        authenticateAndExecute(zoneService.updateZoneStatus(id, writeDisabled = false, _)) { chg =>
+          complete(StatusCodes.Accepted, chg)
+        }
+      }
+    } ~
     path("zones" / Segment / "changes") { id =>
       (get & monitor("Endpoint.listZoneChanges")) {
         parameters("startFrom".?, "maxItems".as[Int].?(DEFAULT_MAX_ITEMS)) {

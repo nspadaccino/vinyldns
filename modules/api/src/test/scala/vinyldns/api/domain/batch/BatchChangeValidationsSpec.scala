@@ -290,6 +290,19 @@ class BatchChangeValidationsSpec
   }
 
   property(
+    "zoneIsNotWriteDisabled: should be valid when the zone is active"
+  ) {
+    zoneIsNotWriteDisabled(okZone) shouldBe ().validNel
+  }
+
+  property(
+    "zoneIsNotWriteDisabled: should fail when the zone is disabled for writes"
+  ) {
+    val disabledZone = okZone.copy(status = ZoneStatus.Disabled)
+    zoneIsNotWriteDisabled(disabledZone) shouldBe ZoneWriteDisabledError(disabledZone.name).invalidNel
+  }
+
+  property(
     "validateScheduledChange: should fail if batch is scheduled and scheduled change disabled"
   ) {
     val input = BatchChangeInput(None, List(), scheduledTime = Some(Instant.now.truncatedTo(ChronoUnit.MILLIS)))

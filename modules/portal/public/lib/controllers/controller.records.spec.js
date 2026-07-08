@@ -69,6 +69,11 @@ describe('Controller: RecordsController', function () {
         expect(this.scope.getZoneStatusLabel()).toBe("danger");
     });
 
+    it('getZoneStatusLabel returns warning if Disabled', function() {
+        this.scope.zoneInfo["status"] = "Disabled";
+        expect(this.scope.getZoneStatusLabel()).toBe("warning");
+    });
+
     it('getZoneStatusLabel returns info if anything but Active or Deleted', function() {
         this.scope.zoneInfo["status"] = "notActiveOrDelete";
         expect(this.scope.getZoneStatusLabel()).toBe("info");

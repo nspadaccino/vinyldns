@@ -538,6 +538,28 @@ class VinylDNS @Inject() (
     // $COVERAGE-ON$
   }
 
+  def disableZone(id: String): Action[AnyContent] = userAction.async { implicit request =>
+    // $COVERAGE-OFF$
+    val vinyldnsRequest =
+      new VinylDNSRequest("POST", s"$vinyldnsServiceBackend", s"zones/$id/disable")
+    executeRequest(vinyldnsRequest, request.user).map(response => {
+      Status(response.status)(response.body)
+        .withHeaders(cacheHeaders: _*)
+    })
+    // $COVERAGE-ON$
+  }
+
+  def enableZone(id: String): Action[AnyContent] = userAction.async { implicit request =>
+    // $COVERAGE-OFF$
+    val vinyldnsRequest =
+      new VinylDNSRequest("POST", s"$vinyldnsServiceBackend", s"zones/$id/enable")
+    executeRequest(vinyldnsRequest, request.user).map(response => {
+      Status(response.status)(response.body)
+        .withHeaders(cacheHeaders: _*)
+    })
+    // $COVERAGE-ON$
+  }
+
   def getRecordSet(id: String): Action[AnyContent] = userAction.async { implicit request =>
     // $COVERAGE-OFF$
     val queryParameters = new HashMap[String, java.util.List[String]]()

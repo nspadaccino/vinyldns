@@ -395,6 +395,13 @@ class ProtobufConversionsSpec
       zoneMatches(toPB(emptyACL), emptyACL)
     }
 
+    "round-trip a Disabled zone through protobuf" in {
+      val disabledZone = zone.copy(status = ZoneStatus.Disabled)
+      val pb = toPB(disabledZone)
+      pb.getStatus shouldBe "Disabled"
+      fromPB(pb).status shouldBe ZoneStatus.Disabled
+    }
+
     "default the status to Active if the zone state is Pending" in {
       val pb = VinylDNSProto.Zone
         .newBuilder()

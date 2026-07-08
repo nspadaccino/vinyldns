@@ -86,6 +86,24 @@ describe('Service: recordsService', function () {
         this.$httpBackend.flush();
     });
 
+    it('http backend gets called properly when disabling zone writes', function () {
+        this.$httpBackend.expectPOST('/api/zones/zoneid/disable').respond('success');
+        this.recordsService.disableZone('zoneid')
+            .then(function(response) {
+                expect(response.data).toBe('success');
+            });
+        this.$httpBackend.flush();
+    });
+
+    it('http backend gets called properly when enabling zone writes', function () {
+        this.$httpBackend.expectPOST('/api/zones/zoneid/enable').respond('success');
+        this.recordsService.enableZone('zoneid')
+            .then(function(response) {
+                expect(response.data).toBe('success');
+            });
+        this.$httpBackend.flush();
+    });
+
     it('http backend gets called properly when listing record set changes', function () {
         this.$httpBackend.expectGET('/api/zones/zoneid/recordsetchanges?maxItems=100').respond('success');
         this.recordsService.listRecordSetChanges('zoneid', '100')

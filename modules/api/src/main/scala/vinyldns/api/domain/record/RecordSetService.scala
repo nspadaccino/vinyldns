@@ -103,6 +103,7 @@ class RecordSetService(
   def addRecordSet(recordSet: RecordSet, auth: AuthPrincipal): Result[ZoneCommandResult] =
     for {
       zone <- getZone(recordSet.zoneId)
+      _ <- zoneIsNotDisabled(zone).toResult
       authZones = dottedHostsConfig.zoneAuthConfigs.map(x => x.zone)
       change <- RecordSetChangeGenerator.forAdd(recordSet, zone, Some(auth)).toResult
       // because changes happen to the RS in forAdd itself, converting 1st and validating on that
@@ -150,6 +151,7 @@ class RecordSetService(
   def updateRecordSet(recordSet: RecordSet, auth: AuthPrincipal): Result[ZoneCommandResult] =
     for {
       zone <- getZone(recordSet.zoneId)
+      _ <- zoneIsNotDisabled(zone).toResult
       existing <- getRecordSet(recordSet.id)
       _ <- unchangedRecordName(existing, recordSet, zone).toResult
       _ <- unchangedRecordType(existing, recordSet).toResult
@@ -229,6 +231,7 @@ class RecordSetService(
                      ): Result[ZoneCommandResult] =
     for {
       zone <- getZone(zoneId)
+      _ <- zoneIsNotDisabled(zone).toResult
       existing <- getRecordSet(recordSetId)
       _ <- isNotHighValueDomain(existing, zone, highValueDomainConfig).toResult
       _ <- canDeleteRecordSet(auth, existing.name, existing.typ, zone, existing.ownerGroupId).toResult

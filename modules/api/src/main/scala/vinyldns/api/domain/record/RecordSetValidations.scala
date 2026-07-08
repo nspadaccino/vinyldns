@@ -28,13 +28,18 @@ import vinyldns.api.domain.zone._
 import vinyldns.core.domain.auth.AuthPrincipal
 import vinyldns.core.domain.membership.Group
 import vinyldns.core.domain.record.{OwnershipTransfer, OwnershipTransferStatus, RecordSet, RecordType}
-import vinyldns.core.domain.zone.Zone
+import vinyldns.core.domain.zone.{Zone, ZoneStatus}
 import vinyldns.core.Messages._
 import vinyldns.core.domain.record.OwnershipTransferStatus.OwnershipTransferStatus
 
 import scala.util.matching.Regex
 
 object RecordSetValidations {
+
+  def zoneIsNotDisabled(zone: Zone): Either[Throwable, Unit] =
+    ensuring(
+      ZoneUnavailableError(s"Zone ${zone.name} is currently disabled for writes")
+    )(zone.status != ZoneStatus.Disabled)
 
   def validRecordTypes(recordSet: RecordSet, zone: Zone): Either[Throwable, Unit] =
     recordSet.typ match {

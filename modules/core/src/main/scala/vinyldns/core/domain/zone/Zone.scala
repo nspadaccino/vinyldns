@@ -30,7 +30,7 @@ import scala.collection.JavaConverters._
 
 object ZoneStatus extends Enumeration {
   type ZoneStatus = Value
-  val Active, Deleted, Syncing = Value
+  val Active, Deleted, Syncing, Disabled = Value
 }
 
 import vinyldns.core.domain.zone.ZoneStatus._

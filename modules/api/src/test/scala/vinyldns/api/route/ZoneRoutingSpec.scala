@@ -261,6 +261,21 @@ class ZoneRoutingSpec
       outcome.map(c => c.asInstanceOf[ZoneCommandResult]).toResult
     }
 
+    def updateZoneStatus(
+        zoneId: String,
+        writeDisabled: Boolean,
+        auth: AuthPrincipal
+    ): Result[ZoneCommandResult] = {
+      val outcome = zoneId match {
+        case ok.id => Right(zoneUpdate.copy(changeType = ZoneChangeType.Update))
+        case notFound.id => Left(ZoneNotFoundError(s"$zoneId"))
+        case notAuthorized.id => Left(NotAuthorizedError(s"$zoneId"))
+        case zone1.id => Left(InvalidRequest(s"$zoneId"))
+        case zone5.id => Left(ZoneUnavailableError(s"$zoneId"))
+      }
+      outcome.map(c => c.asInstanceOf[ZoneCommandResult]).toResult
+    }
+
     def getZone(zoneId: String, auth: AuthPrincipal): Result[ZoneInfo] = {
       val outcome = zoneId match {
         case notFound.id => Left(ZoneNotFoundError(s"$zoneId"))
@@ -1453,6 +1468,46 @@ class ZoneRoutingSpec
     }
     "return a Conflict if the zone is currently syncing" in {
       Post(s"/zones/${zone5.id}/sync") ~> zoneRoute ~> check {
+        status shouldBe Conflict
+      }
+    }
+  }
+
+  "POST zone disable" should {
+    "return 202 Accepted if the zone can be disabled" in {
+      Post(s"/zones/${ok.id}/disable") ~> zoneRoute ~> check {
+        val result = responseAs[ZoneChange]
+        result.changeType shouldBe ZoneChangeType.Update
+        status shouldBe Accepted
+      }
+    }
+    "return 404 NotFound if the zone is not found" in {
+      Post(s"/zones/${notFound.id}/disable") ~> zoneRoute ~> check {
+        status shouldBe NotFound
+      }
+    }
+    "return a Forbidden if the user is not authorized" in {
+      Post(s"/zones/${notAuthorized.id}/disable") ~> zoneRoute ~> check {
+        status shouldBe Forbidden
+      }
+    }
+    "return a BadRequest if the zone is in an invalid state to be toggled" in {
+      Post(s"/zones/${zone1.id}/disable") ~> zoneRoute ~> check {
+        status shouldBe BadRequest
+      }
+    }
+  }
+
+  "POST zone enable" should {
+    "return 202 Accepted if the zone can be enabled" in {
+      Post(s"/zones/${ok.id}/enable") ~> zoneRoute ~> check {
+        val result = responseAs[ZoneChange]
+        result.changeType shouldBe ZoneChangeType.Update
+        status shouldBe Accepted
+      }
+    }
+    "return a Conflict if the zone is unavailable" in {
+      Post(s"/zones/${zone5.id}/enable") ~> zoneRoute ~> check {
         status shouldBe Conflict
       }
     }

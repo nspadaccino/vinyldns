@@ -33,6 +33,7 @@ import com.cronutils.model.definition.CronDefinitionBuilder
 import com.cronutils.parser.CronParser
 import com.cronutils.model.CronType
 import vinyldns.api.domain.membership.MembershipService
+import vinyldns.api.domain.record.RecordSetValidations.zoneIsNotDisabled
 
 object ZoneService {
   def apply(
@@ -141,10 +142,32 @@ class ZoneService(
     for {
       zone <- getZoneOrFail(zoneId)
       _ <- canChangeZone(auth, zone.name, zone.adminGroupId).toResult
+      _ <- zoneIsNotDisabled(zone).toResult
       _ <- outsideSyncDelay(zone).toResult
       syncZoneChange <- ZoneChangeGenerator.forSync(zone, auth).toResult
       _ <- messageQueue.send(syncZoneChange).toResult[Unit]
     } yield syncZoneChange
+
+  def updateZoneStatus(
+      zoneId: String,
+      writeDisabled: Boolean,
+      auth: AuthPrincipal
+  ): Result[ZoneCommandResult] =
+    for {
+      zone <- getZoneOrFail(zoneId)
+      _ <- canChangeZone(auth, zone.name, zone.adminGroupId).toResult
+      // only an Active or already-Disabled zone can be toggled; not a Syncing/Deleted zone
+      _ <- ensuring(
+        InvalidRequest(
+          s"Cannot change write status of zone ${zone.name} while it is ${zone.status}"
+        )
+      )(zone.status == ZoneStatus.Active || zone.status == ZoneStatus.Disabled).toResult
+      updatedZone = zone.copy(
+        status = if (writeDisabled) ZoneStatus.Disabled else ZoneStatus.Active
+      )
+      zoneChange <- ZoneChangeGenerator.forUpdate(updatedZone, zone, auth, crypto).toResult
+      _ <- messageQueue.send(zoneChange).toResult[Unit]
+    } yield zoneChange
 
   def getZone(zoneId: String, auth: AuthPrincipal): Result[ZoneInfo] =
     for {

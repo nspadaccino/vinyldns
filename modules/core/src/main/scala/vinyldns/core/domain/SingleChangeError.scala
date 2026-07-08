@@ -36,7 +36,8 @@ object DomainValidationErrorType extends Enumeration {
   InvalidUpdateRequest, CnameIsNotUniqueError, UserIsNotAuthorized, UserIsNotAuthorizedError, RecordNameNotUniqueInBatch,
   RecordInReverseZoneError, HighValueDomainError, MissingOwnerGroupId, ExistingMultiRecordError,
   NewMultiRecordError, CnameAtZoneApexError, RecordRequiresManualReview, UnsupportedOperation,
-  DeleteRecordDataDoesNotExist, InvalidIPv4CName, InvalidBatchRequest, NotApprovedNSError  = Value
+  DeleteRecordDataDoesNotExist, InvalidIPv4CName, InvalidBatchRequest, NotApprovedNSError,
+  ZoneWriteDisabledError  = Value
 
   // $COVERAGE-OFF$
   def from(error: DomainValidationError): DomainValidationErrorType =
@@ -79,6 +80,7 @@ object DomainValidationErrorType extends Enumeration {
       case _: InvalidIPv4CName => InvalidIPv4CName
       case _: InvalidBatchRequest => InvalidBatchRequest
       case _: NotApprovedNSError => NotApprovedNSError
+      case _: ZoneWriteDisabledError => ZoneWriteDisabledError
     }
   // $COVERAGE-ON$
 }

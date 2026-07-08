@@ -22,7 +22,7 @@ import com.cronutils.model.definition.{CronDefinition, CronDefinitionBuilder}
 import com.cronutils.model.time.ExecutionTime
 import com.cronutils.parser.CronParser
 import org.slf4j.LoggerFactory
-import vinyldns.core.domain.zone.{Zone, ZoneChange, ZoneRepository}
+import vinyldns.core.domain.zone.{Zone, ZoneChange, ZoneRepository, ZoneStatus}
 import java.time.{Instant, ZoneId}
 import java.time.temporal.ChronoUnit
 
@@ -51,7 +51,7 @@ object ZoneSyncScheduleHandler {
   def getZonesWithSchedule(zone: List[Zone]): List[String] = {
     var zonesWithSchedule: List[String] = List.empty
     for(z <- zone) {
-      if (z.recurrenceSchedule.isDefined) {
+      if (z.recurrenceSchedule.isDefined && z.status != ZoneStatus.Disabled) {
         val now = Instant.now().atZone(ZoneId.of("UTC"))
         val cronDefinition: CronDefinition = CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ)
         val parser: CronParser = new CronParser(cronDefinition)

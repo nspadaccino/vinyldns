@@ -422,6 +422,8 @@ angular.module('controller.records', [])
                 return 'success';
             case 'Deleted':
                 return 'danger';
+            case 'Disabled':
+                return 'warning';
             default:
                 return 'info';
         }
@@ -631,6 +633,32 @@ angular.module('controller.records', [])
             .then(success)
             .catch(function (error){
                 handleError(error, 'recordsService::syncZone-failure');
+            });
+    };
+
+    $scope.disableZoneWrites = function() {
+        function success(response) {
+            $log.debug('recordsService::disableZone-success');
+            location.reload();
+        }
+        return recordsService
+            .disableZone($scope.zoneId)
+            .then(success)
+            .catch(function (error){
+                handleError(error, 'recordsService::disableZone-failure');
+            });
+    };
+
+    $scope.enableZoneWrites = function() {
+        function success(response) {
+            $log.debug('recordsService::enableZone-success');
+            location.reload();
+        }
+        return recordsService
+            .enableZone($scope.zoneId)
+            .then(success)
+            .catch(function (error){
+                handleError(error, 'recordsService::enableZone-failure');
             });
     };
 

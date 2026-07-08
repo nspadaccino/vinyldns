@@ -211,6 +211,14 @@ class RecordSetServiceSpec
       val result = underTest.getRecordSetByZone(aaaa.id, mockZone.id, okAuth).value.unsafeRunSync().swap.toOption.get
       result shouldBe a[ZoneNotFoundError]
     }
+    "fail if the zone is disabled for writes" in {
+      val disabledZone = okZone.copy(id = "disabledZone", status = ZoneStatus.Disabled)
+      doReturn(IO.pure(Some(disabledZone))).when(mockZoneRepo).getZone(disabledZone.id)
+      val record = aaaa.copy(zoneId = disabledZone.id)
+
+      val result = underTest.addRecordSet(record, okAuth).value.unsafeRunSync().swap.toOption.get
+      result shouldBe a[ZoneUnavailableError]
+    }
     "fail when the account is not authorized" in {
       doReturn(IO.pure(Some(aaaa)))
         .when(mockRecordRepo)
@@ -1523,6 +1531,14 @@ class RecordSetServiceSpec
       val result =
         underTest.deleteRecordSet(aaaa.id, zoneNotAuthorized.id, okAuth).value.unsafeRunSync().swap.toOption.get
       result shouldBe a[NotAuthorizedError]
+    }
+    "fail if the zone is disabled for writes" in {
+      val disabledZone = okZone.copy(id = "disabledDeleteZone", status = ZoneStatus.Disabled)
+      doReturn(IO.pure(Some(disabledZone))).when(mockZoneRepo).getZone(disabledZone.id)
+
+      val result =
+        underTest.deleteRecordSet(aaaa.id, disabledZone.id, okAuth).value.unsafeRunSync().swap.toOption.get
+      result shouldBe a[ZoneUnavailableError]
     }
     "fail if the record is a high value domain" in {
       val record =
