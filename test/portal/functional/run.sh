@@ -8,8 +8,9 @@ if [ "$1" == "--interactive" ]; then
   shift
   bash
 else
-  # Attempt to just run grunt - this should work most of the time
-  # We may need to update dependencies if our local functional tests dependencies
-  # differ from those of the 'base-test-portal' docker image
-  grunt unit "$@" || { echo "Attempting to recover.." && npm install -f --no-audit --no-fund && grunt unit "$@"; }
+  # Sync dependencies before running - the 'base-test-portal' image ships a
+  # pre-baked node_modules that can drift from package.json (e.g. missing
+  # jquery-ui-dist / angular-cron-jobs), which makes the first grunt run fail.
+  npm install -f --no-audit --no-fund
+  grunt unit "$@"
 fi
