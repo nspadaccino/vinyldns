@@ -46,6 +46,46 @@ def test_generate_zone_success(shared_zone_test_context):
             client.abandon_generated_zones([result_zone["id"]], status=202)
 
 
+@pytest.mark.serial
+def test_generate_zone_bind_success(shared_zone_test_context):
+    """
+    Test successfully creating a bind zone
+    """
+    client = shared_zone_test_context.ok_vinyldns_client
+    result_zone = None
+    try:
+        zone_name = f"one-time-bind{shared_zone_test_context.partition_id}."
+
+        zone = {
+                    "groupId": shared_zone_test_context.ok_group["id"],
+                    "email": "test@test.com",
+                    "provider": "bind",
+                    "zoneName": zone_name,
+                    "providerParams": {
+                        "nameservers": [
+                            "172.17.42.1.",
+                            "ns1.mttest1.example.org."
+                        ],
+                        "admin_email": "admin@test.com"
+                    }
+                 }
+        result_zone = client.generate_zone(zone, status=202)
+
+        client.wait_until_generate_zone_active(result_zone["id"])
+
+        get_zone = client.get_generate_zone(result_zone["id"])
+
+        assert_that(get_zone["zoneName"], is_(zone["zoneName"].strip()))
+        assert_that(get_zone["email"], is_(zone["email"]))
+        assert_that(get_zone["groupId"], is_(zone["groupId"]))
+        assert_that(get_zone["status"], is_("Active"))
+        assert_that(get_zone["provider"], is_(zone["provider"]))
+
+    finally:
+        if result_zone:
+            client.abandon_generated_zones([result_zone["id"]], status=202)
+
+
 def test_generate_zone_fails_no_authorization(shared_zone_test_context):
     """
     Test creating a new zone without authorization

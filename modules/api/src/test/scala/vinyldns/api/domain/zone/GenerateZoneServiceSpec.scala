@@ -315,6 +315,25 @@ class GenerateZoneServiceSpec
           s"(current: '${generatePdnsZone.provider}', requested: 'bind')."
       )
     }
+
+    "return a valid response for a valid bind update request" in {
+      doReturn(IO.pure(Some(generateBindZone))).when(mockGenerateZoneRepository).getGenerateZoneByName(anyString)
+      doReturn(IO.pure(generateBindZone))
+        .when(mockGenerateZoneRepository)
+        .save(any[GenerateZone])
+
+      val result =
+        zoneServiceWith(mockBindProviderApiConnection)
+          .handleUpdateGeneratedZoneRequest(updateBindZoneAuthorized.copy(groupId = okGroup.id), okAuth)
+          .value
+          .unsafeRunSync()
+          .toOption
+          .get
+
+      result.zoneName shouldBe updateBindZoneAuthorized.zoneName
+      result.providerParams shouldBe updateBindZoneAuthorized.providerParams
+      result.provider shouldBe updateBindZoneAuthorized.provider
+    }
   }
 
   "Deleting Generated Zones" should {
@@ -336,6 +355,22 @@ class GenerateZoneServiceSpec
       val error =
         underTest.handleDeleteGeneratedZoneRequest(generatePdnsZone.id, noAuth).value.unsafeRunSync().swap.toOption.get
       error shouldBe a[NotAuthorizedError]
+    }
+
+    "return a delete zone response for bind provider" in {
+      doReturn(IO.pure(Some(generateBindZone))).when(mockGenerateZoneRepository).getGenerateZoneById(anyString)
+      doReturn(IO.pure(generateBindZone))
+        .when(mockGenerateZoneRepository)
+        .delete(any[GenerateZone])
+
+      val result =
+        zoneServiceWith(mockBindProviderApiConnection)
+          .handleDeleteGeneratedZoneRequest(generateBindZone.id, okAuth)
+          .value
+          .unsafeRunSync()
+          .toOption
+          .get
+      result.zoneName shouldBe generateBindZoneAuthorized.zoneName
     }
   }
 

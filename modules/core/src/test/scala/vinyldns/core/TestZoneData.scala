@@ -157,6 +157,90 @@ object TestZoneData {
     allowedProviders = List("powerdns")
   )
 
+  // Mirrors the "bind" provider entry in application.conf so the generate-zone create/update/
+  // delete flow can be exercised end-to-end against the mocked HttpURLConnection.
+  val mockBindProviderApiConnection = DnsProviderApiConnection(
+    providers = Map(
+      "bind" -> DnsProviderConfig(
+        endpoints = Map(
+          "create-zone" -> "http://localhost:19000/api/zones/generate",
+          "delete-zone" -> "http://localhost:19000/api/zones/delete?zoneName={{zoneName}}",
+          "update-zone" -> "http://localhost:19000/api/zones/update"
+        ),
+        requestTemplates = Map(
+          "create-zone" -> """
+        {
+          "zoneName": "{{zoneName}}",
+          "nameservers": "{{nameservers}}",
+          "admin_email": "{{admin_email}}",
+          "ttl": "{{ttl}}",
+          "refresh": "{{refresh}}",
+          "retry": "{{retry}}",
+          "expire": "{{expire}}",
+          "negative_cache_ttl": "{{negative_cache_ttl}}"
+        }
+        """,
+          "delete-zone" -> """{ "zoneName": "{{zoneName}}" }""",
+          "update-zone" -> """
+        {
+          "zoneName": "{{zoneName}}",
+          "nameservers": "{{nameservers}}",
+          "admin_email": "{{admin_email}}",
+          "ttl": "{{ttl}}",
+          "refresh": "{{refresh}}",
+          "retry": "{{retry}}",
+          "expire": "{{expire}}",
+          "negative_cache_ttl": "{{negative_cache_ttl}}"
+        }
+        """
+        ),
+        schemas = Map(
+          "create-zone" -> """{
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "BIND Create Zone Request",
+                    "type": "object",
+                    "required": ["nameservers", "admin_email"],
+                    "properties": {
+                      "nameservers": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                      "admin_email": { "type": "string", "format": "email" },
+                      "ttl": { "type": "integer", "minimum": 0 },
+                      "refresh": { "type": "integer", "minimum": 0 },
+                      "retry": { "type": "integer", "minimum": 0 },
+                      "expire": { "type": "integer", "minimum": 0 },
+                      "negative_cache_ttl": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  }""",
+          "update-zone" -> """{
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "BIND Update Zone Request",
+                    "type": "object",
+                    "required": ["nameservers", "admin_email"],
+                    "properties": {
+                      "nameservers": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                      "admin_email": { "type": "string", "format": "email" },
+                      "ttl": { "type": "integer", "minimum": 0 },
+                      "refresh": { "type": "integer", "minimum": 0 },
+                      "retry": { "type": "integer", "minimum": 0 },
+                      "expire": { "type": "integer", "minimum": 0 },
+                      "negative_cache_ttl": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  }""",
+          "delete-zone" -> """{
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "BIND Delete Zone Request",
+                    "type": "object",
+                    "additionalProperties": false
+                  }"""
+        ),
+        apiKey = Encrypted("bind-api-key")
+      )
+    ),
+    nameServers = List("172.17.42.1.", "ns1.parent.com."),
+    allowedProviders = List("bind")
+  )
+
   /* ACL RULES */
   val userAclRule: ACLRule = ACLRule(AccessLevel.Read, userId = Some("someUser"))
 
@@ -233,12 +317,26 @@ val createZoneAuthorized = ConnectZoneInput(
     "kind"-> JString("Master")
   )
 
+  val updateBindProviderParams: Map[String, JValue] = Map(
+    "nameservers" -> JArray(List(JString("ns2.parent.com."))),
+    "admin_email" -> JString("updated@test.com"),
+    "ttl" -> JInt(7200)
+  )
+
   val generateBindZoneAuthorized = ZoneGenerationInput(
     okGroup.id,
     "test@test.com",
     "bind",
     okZone.name,
     providerParams = bindProviderParams
+  )
+
+  val updateBindZoneAuthorized = ZoneGenerationInput(
+    okGroup.id,
+    "test@test.com",
+    "bind",
+    okZone.name,
+    providerParams = updateBindProviderParams
   )
 
   val generatePdnsZoneAuthorized = ZoneGenerationInput(

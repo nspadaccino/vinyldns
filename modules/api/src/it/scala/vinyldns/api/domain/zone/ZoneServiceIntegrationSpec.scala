@@ -31,6 +31,7 @@ import org.scalatest.concurrent.{PatienceConfiguration, ScalaFutures}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatest.time.{Seconds, Span}
 import scalikejdbc.DB
+import vinyldns.api.config.ValidEmailConfig
 import vinyldns.api.domain.access.AccessValidations
 import vinyldns.api.domain.membership.MembershipService
 import vinyldns.api.domain.record.RecordSetChangeGenerator
@@ -43,7 +44,7 @@ import vinyldns.core.crypto.NoOpCrypto
 import vinyldns.core.domain.{Encrypted, Fqdn}
 import vinyldns.core.domain.auth.AuthPrincipal
 import vinyldns.core.domain.backend.BackendResolver
-import vinyldns.core.domain.membership.{GroupRepository, UserRepository}
+import vinyldns.core.domain.membership.{GroupChangeRepository, GroupRepository, MembershipRepository, UserRepository}
 import vinyldns.core.domain.record._
 import vinyldns.core.domain.zone._
 import vinyldns.core.domain.zone.generate._
@@ -68,13 +69,17 @@ class ZoneServiceIntegrationSpec
   private val recordSetRepo = recordSetRepository
   private val zoneRepo: ZoneRepository = zoneRepository
   private val mockMembershipService = mock[MembershipService]
+  // Points at the "vinyldns-pdns-auth" container's compose-network hostname (not localhost) since
+  // pdns-auth is a sibling container, not colocated with this test suite like the bind zones API.
+  // This only resolves when run via quickstart/docker-compose; the test/api/integration/Makefile
+  // CI flow runs in a single container with no pdns-auth sidecar, so it won't reach this endpoint.
   val mockDnsProviderApiConnection = DnsProviderApiConnection(
     providers = Map(
       "powerdns" -> DnsProviderConfig(
         endpoints = Map(
-          "create-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones",
-          "delete-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}",
-          "update-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}"
+          "create-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones",
+          "delete-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}",
+          "update-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}"
         ),
         requestTemplates = Map(
           "create-zone" -> """
@@ -98,7 +103,7 @@ class ZoneServiceIntegrationSpec
           "create-zone" -> """{ "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "PowerDNS Create Zone", "type": "object", "required": ["kind", "nameservers"], "properties": { "kind": { "type": "string", "enum": ["Native", "Master"] }, "nameservers": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-zA-Z0-9.-]+\\.$" } }, "masters": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false }""",
           "update-zone" -> """{ "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "PowerDNS Update Zone", "type": "object", "properties": { "kind": { "type": "string", "enum": ["Native", "Master"] }, "masters": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false }"""
         ),
-        apiKey = Encrypted("test-api-key")
+        apiKey = Encrypted("vinyldns_pdns_auth_api_key")
       )
     ),
 
@@ -106,11 +111,65 @@ class ZoneServiceIntegrationSpec
     allowedProviders = List("powerdns")
   )
 
+  // The bind zones API (utils/manage_vinyldns_zones_bind_api.py) runs colocated with this test
+  // suite on localhost:19000, unlike pdns-auth which is a separate container - so this is the
+  // provider we can exercise with real network calls in an "it" test.
+  val mockBindDnsProviderApiConnection = DnsProviderApiConnection(
+    providers = Map(
+      "bind" -> DnsProviderConfig(
+        endpoints = Map(
+          "create-zone" -> "http://localhost:19000/api/zones/generate",
+          "delete-zone" -> "http://localhost:19000/api/zones/delete?zoneName={{zoneName}}",
+          "update-zone" -> "http://localhost:19000/api/zones/update"
+        ),
+        requestTemplates = Map(
+          "create-zone" -> """
+        {
+          "zoneName": "{{zoneName}}",
+          "nameservers": "{{nameservers}}",
+          "admin_email": "{{admin_email}}"
+        }
+        """,
+          "delete-zone" -> """{ "zoneName": "{{zoneName}}" }""",
+          "update-zone" -> """
+        {
+          "zoneName": "{{zoneName}}",
+          "nameservers": "{{nameservers}}",
+          "admin_email": "{{admin_email}}"
+        }
+        """
+        ),
+        schemas = Map(
+          "create-zone" -> """{ "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "BIND Create Zone Request", "type": "object", "required": ["nameservers", "admin_email"], "properties": { "nameservers": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "admin_email": { "type": "string", "format": "email" } }, "additionalProperties": false }""",
+          "update-zone" -> """{ "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "BIND Update Zone Request", "type": "object", "required": ["nameservers", "admin_email"], "properties": { "nameservers": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "admin_email": { "type": "string", "format": "email" } }, "additionalProperties": false }""",
+          "delete-zone" -> """{ "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "BIND Delete Zone Request", "type": "object", "additionalProperties": false }"""
+        ),
+        apiKey = Encrypted("bind-api-key")
+      )
+    ),
+    nameServers = List("172.17.42.1."),
+    allowedProviders = List("bind")
+  )
+
   private val mockGenerateZoneRepository: GenerateZoneRepository = generateZoneRepository
   private var testZoneService: ZoneServiceAlgebra = _
   private var testGenerateZoneService: GenerateZoneServiceAlgebra = _
+  private var testGenerateZoneServiceBind: GenerateZoneServiceAlgebra = _
 
   private val badAuth = AuthPrincipal(okUser, Seq())
+
+  // Real (not mocked) MembershipService so emailValidation actually runs for the bind
+  // create/update/delete network flow tests below; the repos it touches otherwise aren't exercised.
+  private val mockGroupRepoForGenerate = mock[GroupRepository]
+  private val realMembershipServiceForGenerate = new MembershipService(
+    mockGroupRepoForGenerate,
+    mock[UserRepository],
+    mock[MembershipRepository],
+    zoneRepo,
+    mock[GroupChangeRepository],
+    recordSetRepo,
+    ValidEmailConfig(valid_domains = List("test.com"), 2)
+  )
 
   val bindZoneGenerationResponse: ZoneGenerationResponse =
     ZoneGenerationResponse(Some(200),Some("bind"), Some(("response" -> "success"): JValue), GenerateZoneChangeType.Create)
@@ -193,6 +252,8 @@ class ZoneServiceIntegrationSpec
     }
     doReturn(NonEmptyList.one("func-test-backend")).when(mockBackendResolver).ids
 
+    doReturn(IO.pure(Some(okGroup))).when(mockGroupRepoForGenerate).getGroup(okGroup.id)
+
     testZoneService = new ZoneService(
       zoneRepo,
       mock[GroupRepository],
@@ -208,13 +269,23 @@ class ZoneServiceIntegrationSpec
     )
     testGenerateZoneService = new GenerateZoneService(
       zoneRepo,
-      mock[GroupRepository],
+      mockGroupRepoForGenerate,
       mockGenerateZoneRepository,
       new ZoneValidations(1000),
       new AccessValidations(),
       NoOpCrypto.instance,
-      mockMembershipService,
+      realMembershipServiceForGenerate,
       mockDnsProviderApiConnection
+    )
+    testGenerateZoneServiceBind = new GenerateZoneService(
+      zoneRepo,
+      mockGroupRepoForGenerate,
+      mockGenerateZoneRepository,
+      new ZoneValidations(1000),
+      new AccessValidations(),
+      NoOpCrypto.instance,
+      realMembershipServiceForGenerate,
+      mockBindDnsProviderApiConnection
     )
   }
 
@@ -294,6 +365,78 @@ class ZoneServiceIntegrationSpec
       result shouldBe Right(
         List("powerdns")
       )
+    }
+
+    // Exercises the full network round-trip against the real pdns-auth container over the
+    // compose network (see the caveat on mockDnsProviderApiConnection above).
+    "create, update, and delete a powerdns zone end-to-end over the network" in {
+      val pdnsZoneName = "it-pdns-network-test.zone."
+      val pdnsProviderParams: Map[String, JValue] = Map(
+        "kind" -> JString("Native"),
+        "nameservers" -> JArray(List(JString("ns1.example.com.")))
+      )
+      val createInput =
+        ZoneGenerationInput(okGroup.id, "test@test.com", "powerdns", pdnsZoneName, pdnsProviderParams)
+
+      val createResult =
+        testGenerateZoneService.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
+      createResult.isRight shouldBe true
+      val created = createResult.toOption.get
+      created.response.flatMap(_.responseCode) shouldBe Some(201)
+      created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
+
+      val updatedParams = pdnsProviderParams + ("kind" -> JString("Master"))
+      val updateInput = createInput.copy(providerParams = updatedParams)
+      val updateResult =
+        testGenerateZoneService.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
+      updateResult.isRight shouldBe true
+      val updated = updateResult.toOption.get
+      updated.response.flatMap(_.responseCode) shouldBe Some(204)
+      updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
+
+      val deleteResult =
+        testGenerateZoneService.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
+      deleteResult.isRight shouldBe true
+      val deleted = deleteResult.toOption.get
+      deleted.response.flatMap(_.responseCode) shouldBe Some(204)
+      deleted.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
+
+      mockGenerateZoneRepository.getGenerateZoneByName(pdnsZoneName).unsafeRunSync() shouldBe None
+    }
+
+    // Exercises the full network round-trip against the real bind zones API (localhost:19000),
+    // which runs colocated with this test suite - unlike pdns-auth, which is a separate container.
+    "create, update, and delete a bind zone end-to-end over the network" in {
+      val bindZoneName = "it-bind-network-test.zone."
+      val bindProviderParams: Map[String, JValue] = Map(
+        "nameservers" -> JArray(List(JString("172.17.42.1."), JString("ns1.example.com."))),
+        "admin_email" -> JString("admin@test.com")
+      )
+      val createInput =
+        ZoneGenerationInput(okGroup.id, "test@test.com", "bind", bindZoneName, bindProviderParams)
+
+      val createResult =
+        testGenerateZoneServiceBind.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
+      createResult.isRight shouldBe true
+      val created = createResult.toOption.get
+      created.response.flatMap(_.responseCode) shouldBe Some(200)
+      created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
+
+      val updatedParams = bindProviderParams + ("admin_email" -> JString("updated@test.com"))
+      val updateInput = createInput.copy(providerParams = updatedParams)
+      val updateResult =
+        testGenerateZoneServiceBind.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
+      updateResult.isRight shouldBe true
+      val updated = updateResult.toOption.get
+      updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
+      updated.providerParams shouldBe updatedParams
+
+      val deleteResult =
+        testGenerateZoneServiceBind.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
+      deleteResult.isRight shouldBe true
+      deleteResult.toOption.get.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
+
+      mockGenerateZoneRepository.getGenerateZoneByName(bindZoneName).unsafeRunSync() shouldBe None
     }
   }
 

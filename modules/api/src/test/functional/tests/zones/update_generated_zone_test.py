@@ -49,6 +49,51 @@ def test_update_generate_zone_success(shared_zone_test_context):
         if result_zone:
             client.abandon_generated_zones([result_zone["id"]], status=202)
 
+
+@pytest.mark.serial
+def test_update_generate_zone_bind_success(shared_zone_test_context):
+    """
+    Test updating a bind zone
+    """
+    client = shared_zone_test_context.ok_vinyldns_client
+    result_zone = None
+    try:
+        zone_name = f"one-time-bind-update{shared_zone_test_context.partition_id}."
+
+        zone = {
+            "groupId": shared_zone_test_context.ok_group["id"],
+            "email": "test@test.com",
+            "provider": "bind",
+            "zoneName": zone_name,
+            "providerParams": {
+                "nameservers": [
+                    "172.17.42.1.",
+                    "ns1.mttest1.example.org."
+                ],
+                "admin_email": "admin@test.com"
+            }
+        }
+        result_zone = client.generate_zone(zone, status=202)
+        client.wait_until_generate_zone_active(result_zone["id"])
+
+        result_zone["email"] = "test@dummy.com"
+        result_zone["providerParams"]["admin_email"] = "updated-admin@test.com"
+
+        update_result = client.update_generate_zone(result_zone, status=202)
+
+        assert_that(update_result["response"]["changeType"], is_("Update"))
+        assert_that(update_result, has_key("created"))
+
+        uz = client.get_generate_zone(result_zone["id"])
+        assert_that(uz["email"], is_("test@dummy.com"))
+        assert_that(uz["providerParams"]["admin_email"], is_("updated-admin@test.com"))
+        assert_that(uz["updated"], is_not(none()))
+
+    finally:
+        if result_zone:
+            client.abandon_generated_zones([result_zone["id"]], status=202)
+
+
 def test_update_generate_zone_failure_with_nameserver(shared_zone_test_context):
     """
     Test updating a zone
