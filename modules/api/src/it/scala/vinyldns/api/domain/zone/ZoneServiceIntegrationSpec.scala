@@ -69,15 +69,16 @@ class ZoneServiceIntegrationSpec
   private val recordSetRepo = recordSetRepository
   private val zoneRepo: ZoneRepository = zoneRepository
   private val mockMembershipService = mock[MembershipService]
-  // pdns-auth publishes port 19005 to the host (see quickstart/docker-compose.yml), so this is
-  // reachable both when "it" tests run on the host and inside the integration container.
+  // it-tests run inside the vinyldns-api-integration container (see test/api/integration/Makefile),
+  // which attaches to the same docker network as the vinyldns-pdns-auth sibling container started
+  // by that Makefile's start-pdns target - so the sibling's hostname is used, not localhost.
   val mockDnsProviderApiConnection = DnsProviderApiConnection(
     providers = Map(
       "powerdns" -> DnsProviderConfig(
         endpoints = Map(
-          "create-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones",
-          "delete-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}",
-          "update-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}"
+          "create-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones",
+          "delete-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}",
+          "update-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}"
         ),
         requestTemplates = Map(
           "create-zone" -> """
