@@ -247,7 +247,14 @@ zone "{zoneName}" {{
                 logger.warning(f"Zone file for '{zoneName}' not found. Skipping zone validation (possibly deleted).")
 
             # Step 3: Restart BIND
-            subprocess.run(['pkill', '-f', '/usr/sbin/named'], capture_output=True, text=True, check=True)
+            # pkill exits 1 if no matching process is found (e.g. named not started yet on a
+            # native runner where the cmdline doesn't include the full binary path) - that's not
+            # a failure, so only raise on a genuine pkill error (>1).
+            kill_result = subprocess.run(['pkill', '-f', 'named -c'], capture_output=True, text=True)
+            if kill_result.returncode > 1:
+                raise subprocess.CalledProcessError(
+                    kill_result.returncode, kill_result.args, kill_result.stdout, kill_result.stderr
+                )
             subprocess.run(['/usr/sbin/named', '-c', self.zone_config], capture_output=True, text=True, check=True)
 
             logger.info("VinylDNS BIND service restarted successfully")
