@@ -121,7 +121,7 @@ class ZoneServiceSpec
       mockZoneRepo,
       mockGroupChangeRepo,
       mockRecordSetRepo,
-      mockValidEmailConfigEmpty)
+      mockValidEmailConfigNew)
   )
 
   override protected def beforeEach(): Unit = {
@@ -148,7 +148,7 @@ class ZoneServiceSpec
       resultZone.email shouldBe okZone.email
       resultZone.name shouldBe okZone.name
       resultZone.status shouldBe ZoneStatus.Syncing
-      resultZone.connection shouldBe okZone.connection
+      resultZone.connection shouldBe createZoneAuthorized.connection
       resultZone.shared shouldBe false
     }
 
@@ -374,7 +374,7 @@ class ZoneServiceSpec
       resultZone.email shouldBe okZone.email
       resultZone.name shouldBe okZone.name
       resultZone.status shouldBe ZoneStatus.Syncing
-      resultZone.connection shouldBe okZone.connection
+      resultZone.connection shouldBe newZone.connection
       resultZone.shared shouldBe true
     }
 
@@ -392,7 +392,7 @@ class ZoneServiceSpec
       resultZone.email shouldBe okZone.email
       resultZone.name shouldBe okZone.name
       resultZone.status shouldBe ZoneStatus.Syncing
-      resultZone.connection shouldBe okZone.connection
+      resultZone.connection shouldBe newZone.connection
       resultZone.shared shouldBe true
     }
 
@@ -406,6 +406,20 @@ class ZoneServiceSpec
 
     "return an InvalidRequest if zone has a specified backend ID that is invalid" in {
       val newZone = createZoneAuthorized.copy(backendId = Some("badId"))
+
+      val error = underTest.connectToZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe an[InvalidRequest]
+    }
+
+    "return an InvalidRequest if a custom connection is supplied" in {
+      val newZone = createZoneAuthorized.copy(connection = testConnection)
+
+      val error = underTest.connectToZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe an[InvalidRequest]
+    }
+
+    "return an InvalidRequest if a custom transfer connection is supplied" in {
+      val newZone = createZoneAuthorized.copy(transferConnection = testConnection)
 
       val error = underTest.connectToZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
       error shouldBe an[InvalidRequest]
@@ -493,7 +507,7 @@ class ZoneServiceSpec
         updateZoneAuthorized.copy(connection = Some(badConnection), adminGroupId = okGroup.id)
 
       val error = underTest.updateZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
-      error shouldBe a[ConnectionFailed]
+      error shouldBe an[InvalidRequest]
     }
 
     "return an error if the user is not authorized for the zone" in {
@@ -599,6 +613,17 @@ class ZoneServiceSpec
     }
     "return an InvalidRequest if zone has a specified backend ID that is invalid" in {
       val newZone = updateZoneAuthorized.copy(backendId = Some("badId"))
+
+      val error = underTest.updateZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe an[InvalidRequest]
+    }
+
+    "return an InvalidRequest if a custom transfer connection is added" in {
+      doReturn(IO.pure(Some(okZone.copy(connection = None, transferConnection = None))))
+        .when(mockZoneRepo)
+        .getZone(anyString)
+
+      val newZone = updateZoneAuthorized.copy(transferConnection = testConnection)
 
       val error = underTest.updateZone(newZone, okAuth).value.unsafeRunSync().swap.toOption.get
       error shouldBe an[InvalidRequest]
@@ -786,6 +811,13 @@ class ZoneServiceSpec
         ZoneInfo(abcZone, ZoneACLInfo(Set()), abcGroup.name, AccessLevel.Delete)
       val result = underTest.getZoneByName("abc.zone.recordsets", abcAuth).value.unsafeRunSync()
       result.right.value shouldBe expectedZoneInfo
+    }
+
+    "return NotAuthorizedError when the caller cannot access the zone by name" in {
+      doReturn(IO.pure(Some(zoneNotAuthorized))).when(mockZoneRepo).getZoneByName(zoneNotAuthorized.name)
+
+      val error = underTest.getZoneByName(zoneNotAuthorized.name, okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe a[NotAuthorizedError]
     }
   }
 
@@ -1351,6 +1383,17 @@ class ZoneServiceSpec
       result.startFrom shouldBe 1
       result.nextId shouldBe 0
       result.maxItems shouldBe 1
+    }
+
+    "return NotAuthorizedError when failed changes include an inaccessible zone" in {
+      doReturn(IO.pure(ListFailedZoneChangesResults(
+        List(zoneCreate.copy(zone = zoneNotAuthorized, status = ZoneChangeStatus.Failed))
+      )))
+        .when(mockZoneChangeRepo)
+        .listFailedZoneChanges(100,0)
+
+      val error = underTest.listFailedZoneChanges(okAuth).value.unsafeRunSync().swap.toOption.get
+      error shouldBe a[NotAuthorizedError]
     }
   }
 

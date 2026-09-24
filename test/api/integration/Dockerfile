@@ -33,6 +33,9 @@ RUN sed -i '/if \[\[ \$START_BIND -eq 1 \]\]; then/a\
 COPY . /build/
 WORKDIR /build
 
+# Create log files before startup to avoid tail race.
+RUN mkdir -p /localstack && touch /localstack/localstack.log /opt/vinyldns/vinyldns.log
+
 # Local bind server files
 COPY quickstart/bind9/etc/named.conf.* /etc/bind/
 COPY quickstart/bind9/zones/ /var/bind/

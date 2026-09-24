@@ -83,14 +83,15 @@ class ZoneService(
       auth: AuthPrincipal
   ): Result[ZoneCommandResult] =
     for {
-      _ <- isValidZoneAcl(connectZoneInput.acl).toResult
-      _ <- membershipService.emailValidation(connectZoneInput.email)
-      _ <- connectionValidator.isValidBackendId(connectZoneInput.backendId).toResult
-      _ <- validateSharedZoneAuthorized(connectZoneInput.shared, auth.signedInUser).toResult
-      _ <- zoneDoesNotExist(connectZoneInput.name)
-      _ <- adminGroupExists(connectZoneInput.adminGroupId)
-      _ <- if(connectZoneInput.recurrenceSchedule.isDefined) canScheduleZoneSync(auth).toResult else IO.unit.toResult
-      isCronStringValid = if(connectZoneInput.recurrenceSchedule.isDefined) isValidCronString(connectZoneInput.recurrenceSchedule.get) else true
+      _ <- isValidZoneAcl(createZoneInput.acl).toResult
+      _ <- membershipService.emailValidation(createZoneInput.email)
+      _ <- connectionValidator.isValidBackendId(createZoneInput.backendId).toResult
+      _ <- noCustomZoneConnections(createZoneInput.connection, createZoneInput.transferConnection).toResult
+      _ <- validateSharedZoneAuthorized(createZoneInput.shared, auth.signedInUser).toResult
+      _ <- zoneDoesNotExist(createZoneInput.name)
+      _ <- adminGroupExists(createZoneInput.adminGroupId)
+      _ <- if(createZoneInput.recurrenceSchedule.isDefined) canScheduleZoneSync(auth).toResult else IO.unit.toResult
+      isCronStringValid = if(createZoneInput.recurrenceSchedule.isDefined) isValidCronString(createZoneInput.recurrenceSchedule.get) else true
       _ <- validateCronString(isCronStringValid).toResult
       _ <- canChangeZone(auth, connectZoneInput.name, connectZoneInput.adminGroupId).toResult
       createdZoneInput = if(connectZoneInput.recurrenceSchedule.isDefined) connectZoneInput.copy(scheduleRequestor = Some(auth.signedInUser.userName)) else connectZoneInput
@@ -123,6 +124,7 @@ class ZoneService(
       else IO.unit.toResult
       updatedZoneInput = if(updateZoneInput.recurrenceSchedule.isDefined) updateZoneInput.copy(scheduleRequestor = Some(auth.signedInUser.userName)) else updateZoneInput
       zoneWithUpdates = Zone(updatedZoneInput, existingZone)
+      _ <- noCustomZoneConnectionUpdates(zoneWithUpdates, existingZone).toResult
       _ <- validateZoneConnectionIfChanged(zoneWithUpdates, existingZone)
       updateZoneChange <- ZoneChangeGenerator
         .forUpdate(zoneWithUpdates, existingZone, auth, crypto)
@@ -165,6 +167,7 @@ class ZoneService(
   def getZoneByName(zoneName: String, auth: AuthPrincipal): Result[ZoneInfo] =
     for {
       zone <- getZoneByNameOrFail(ensureTrailingDot(zoneName))
+      _ <- canSeeZone(auth, zone).toResult
       aclInfo <- getZoneAclDisplay(zone.acl)
       groupName <- getGroupName(zone.adminGroupId)
       accessLevel = getZoneAccess(auth, zone)
@@ -318,7 +321,7 @@ class ZoneService(
       zoneChangesFailedResults <- zoneChangeRepository
         .listFailedZoneChanges(maxItems, startFrom)
         .toResult[ListFailedZoneChangesResults]
-      _ <- zoneAccess(zoneChangesFailedResults.items, authPrincipal).toResult
+      _ <- zoneAccess(zoneChangesFailedResults.items, authPrincipal)
     } yield
       ListFailedZoneChangesResponse(
         zoneChangesFailedResults.items,
@@ -328,12 +331,10 @@ class ZoneService(
       )
 
   def zoneAccess(
-                  zoneCh: List[ZoneChange],
-                  auth: AuthPrincipal
-                ): List[Result[Unit]] =
-    zoneCh.map { zn =>
-      canSeeZone(auth, zn.zone).toResult
-    }
+                   zoneCh: List[ZoneChange],
+                   auth: AuthPrincipal
+                 ): Result[Unit] =
+    zoneCh.traverse_(zn => canSeeZone(auth, zn.zone).toResult)
 
   def addACLRule(
       zoneId: String,
