@@ -83,15 +83,15 @@ class ZoneService(
       auth: AuthPrincipal
   ): Result[ZoneCommandResult] =
     for {
-      _ <- isValidZoneAcl(createZoneInput.acl).toResult
-      _ <- membershipService.emailValidation(createZoneInput.email)
-      _ <- connectionValidator.isValidBackendId(createZoneInput.backendId).toResult
-      _ <- noCustomZoneConnections(createZoneInput.connection, createZoneInput.transferConnection).toResult
-      _ <- validateSharedZoneAuthorized(createZoneInput.shared, auth.signedInUser).toResult
-      _ <- zoneDoesNotExist(createZoneInput.name)
-      _ <- adminGroupExists(createZoneInput.adminGroupId)
-      _ <- if(createZoneInput.recurrenceSchedule.isDefined) canScheduleZoneSync(auth).toResult else IO.unit.toResult
-      isCronStringValid = if(createZoneInput.recurrenceSchedule.isDefined) isValidCronString(createZoneInput.recurrenceSchedule.get) else true
+      _ <- isValidZoneAcl(connectZoneInput.acl).toResult
+      _ <- membershipService.emailValidation(connectZoneInput.email)
+      _ <- connectionValidator.isValidBackendId(connectZoneInput.backendId).toResult
+      _ <- noCustomZoneConnections(connectZoneInput.connection, connectZoneInput.transferConnection).toResult
+      _ <- validateSharedZoneAuthorized(connectZoneInput.shared, auth.signedInUser).toResult
+      _ <- zoneDoesNotExist(connectZoneInput.name)
+      _ <- adminGroupExists(connectZoneInput.adminGroupId)
+      _ <- if(connectZoneInput.recurrenceSchedule.isDefined) canScheduleZoneSync(auth).toResult else IO.unit.toResult
+      isCronStringValid = if(connectZoneInput.recurrenceSchedule.isDefined) isValidCronString(connectZoneInput.recurrenceSchedule.get) else true
       _ <- validateCronString(isCronStringValid).toResult
       _ <- canChangeZone(auth, connectZoneInput.name, connectZoneInput.adminGroupId).toResult
       createdZoneInput = if(connectZoneInput.recurrenceSchedule.isDefined) connectZoneInput.copy(scheduleRequestor = Some(auth.signedInUser.userName)) else connectZoneInput

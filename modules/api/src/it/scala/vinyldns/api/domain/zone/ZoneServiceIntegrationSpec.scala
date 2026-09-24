@@ -69,17 +69,15 @@ class ZoneServiceIntegrationSpec
   private val recordSetRepo = recordSetRepository
   private val zoneRepo: ZoneRepository = zoneRepository
   private val mockMembershipService = mock[MembershipService]
-  // Points at the "vinyldns-pdns-auth" container's compose-network hostname (not localhost) since
-  // pdns-auth is a sibling container, not colocated with this test suite like the bind zones API.
-  // This only resolves when run via quickstart/docker-compose; the test/api/integration/Makefile
-  // CI flow runs in a single container with no pdns-auth sidecar, so it won't reach this endpoint.
+  // pdns-auth publishes port 19005 to the host (see quickstart/docker-compose.yml), so this is
+  // reachable both when "it" tests run on the host and inside the integration container.
   val mockDnsProviderApiConnection = DnsProviderApiConnection(
     providers = Map(
       "powerdns" -> DnsProviderConfig(
         endpoints = Map(
-          "create-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones",
-          "delete-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}",
-          "update-zone" -> "http://vinyldns-pdns-auth:19005/api/v1/servers/localhost/zones/{{zoneName}}"
+          "create-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones",
+          "delete-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}",
+          "update-zone" -> "http://localhost:19005/api/v1/servers/localhost/zones/{{zoneName}}"
         ),
         requestTemplates = Map(
           "create-zone" -> """
@@ -112,8 +110,7 @@ class ZoneServiceIntegrationSpec
   )
 
   // The bind zones API (utils/manage_vinyldns_zones_bind_api.py) runs colocated with this test
-  // suite on localhost:19000, unlike pdns-auth which is a separate container - so this is the
-  // provider we can exercise with real network calls in an "it" test.
+  // suite on localhost:19000, and bind's own port is also published to the host by docker-compose.
   val mockBindDnsProviderApiConnection = DnsProviderApiConnection(
     providers = Map(
       "bind" -> DnsProviderConfig(
@@ -378,30 +375,47 @@ class ZoneServiceIntegrationSpec
       val createInput =
         ZoneGenerationInput(okGroup.id, "test@test.com", "powerdns", pdnsZoneName, pdnsProviderParams)
 
-      val createResult =
-        testGenerateZoneService.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
-      createResult.isRight shouldBe true
-      val created = createResult.toOption.get
-      created.response.flatMap(_.responseCode) shouldBe Some(201)
-      created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
+      // Regardless of where an assertion below fails, make sure the pdns-auth zone doesn't linger
+      // and cause a 409 Conflict on the next run.
+      try {
+        val createResult =
+          testGenerateZoneService.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
+        withClue(s"create failed: ${createResult.swap.toOption}") {
+          createResult.isRight shouldBe true
+        }
+        val created = createResult.toOption.get
+        created.response.flatMap(_.responseCode) shouldBe Some(201)
+        created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
 
-      val updatedParams = pdnsProviderParams + ("kind" -> JString("Master"))
-      val updateInput = createInput.copy(providerParams = updatedParams)
-      val updateResult =
-        testGenerateZoneService.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
-      updateResult.isRight shouldBe true
-      val updated = updateResult.toOption.get
-      updated.response.flatMap(_.responseCode) shouldBe Some(204)
-      updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
+        // PowerDNS's update-zone schema only allows kind/masters, not nameservers.
+        val updatedParams: Map[String, JValue] = Map("kind" -> JString("Master"))
+        val updateInput = createInput.copy(providerParams = updatedParams)
+        val updateResult =
+          testGenerateZoneService.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
+        withClue(s"update failed: ${updateResult.swap.toOption}") {
+          updateResult.isRight shouldBe true
+        }
+        val updated = updateResult.toOption.get
+        updated.response.flatMap(_.responseCode) shouldBe Some(204)
+        updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
 
-      val deleteResult =
-        testGenerateZoneService.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
-      deleteResult.isRight shouldBe true
-      val deleted = deleteResult.toOption.get
-      deleted.response.flatMap(_.responseCode) shouldBe Some(204)
-      deleted.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
+        val deleteResult =
+          testGenerateZoneService.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
+        withClue(s"delete failed: ${deleteResult.swap.toOption}") {
+          deleteResult.isRight shouldBe true
+        }
+        val deleted = deleteResult.toOption.get
+        deleted.response.flatMap(_.responseCode) shouldBe Some(204)
+        deleted.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
 
-      mockGenerateZoneRepository.getGenerateZoneByName(pdnsZoneName).unsafeRunSync() shouldBe None
+        mockGenerateZoneRepository.getGenerateZoneByName(pdnsZoneName).unsafeRunSync() shouldBe None
+      } finally {
+        // Best-effort cleanup so a failed assertion above doesn't leave the zone in pdns-auth,
+        // which would 409 Conflict on the next run.
+        mockGenerateZoneRepository.getGenerateZoneByName(pdnsZoneName).unsafeRunSync().foreach { existing =>
+          testGenerateZoneService.handleDeleteGeneratedZoneRequest(existing.id, okAuth).value.unsafeRunSync()
+        }
+      }
     }
 
     // Exercises the full network round-trip against the real bind zones API (localhost:19000),
@@ -415,28 +429,42 @@ class ZoneServiceIntegrationSpec
       val createInput =
         ZoneGenerationInput(okGroup.id, "test@test.com", "bind", bindZoneName, bindProviderParams)
 
-      val createResult =
-        testGenerateZoneServiceBind.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
-      createResult.isRight shouldBe true
-      val created = createResult.toOption.get
-      created.response.flatMap(_.responseCode) shouldBe Some(200)
-      created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
+      // Regardless of where an assertion below fails, make sure the bind zone file/config doesn't
+      // linger and interfere with the next run.
+      try {
+        val createResult =
+          testGenerateZoneServiceBind.handleGenerateZoneRequest(createInput, okAuth).value.unsafeRunSync()
+        withClue(s"create failed: ${createResult.swap.toOption}") {
+          createResult.isRight shouldBe true
+        }
+        val created = createResult.toOption.get
+        created.response.flatMap(_.responseCode) shouldBe Some(200)
+        created.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Create)
 
-      val updatedParams = bindProviderParams + ("admin_email" -> JString("updated@test.com"))
-      val updateInput = createInput.copy(providerParams = updatedParams)
-      val updateResult =
-        testGenerateZoneServiceBind.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
-      updateResult.isRight shouldBe true
-      val updated = updateResult.toOption.get
-      updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
-      updated.providerParams shouldBe updatedParams
+        val updatedParams = bindProviderParams + ("admin_email" -> JString("updated@test.com"))
+        val updateInput = createInput.copy(providerParams = updatedParams)
+        val updateResult =
+          testGenerateZoneServiceBind.handleUpdateGeneratedZoneRequest(updateInput, okAuth).value.unsafeRunSync()
+        withClue(s"update failed: ${updateResult.swap.toOption}") {
+          updateResult.isRight shouldBe true
+        }
+        val updated = updateResult.toOption.get
+        updated.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Update)
+        updated.providerParams shouldBe updatedParams
 
-      val deleteResult =
-        testGenerateZoneServiceBind.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
-      deleteResult.isRight shouldBe true
-      deleteResult.toOption.get.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
+        val deleteResult =
+          testGenerateZoneServiceBind.handleDeleteGeneratedZoneRequest(created.id, okAuth).value.unsafeRunSync()
+        withClue(s"delete failed: ${deleteResult.swap.toOption}") {
+          deleteResult.isRight shouldBe true
+        }
+        deleteResult.toOption.get.response.map(_.changeType) shouldBe Some(GenerateZoneChangeType.Delete)
 
-      mockGenerateZoneRepository.getGenerateZoneByName(bindZoneName).unsafeRunSync() shouldBe None
+        mockGenerateZoneRepository.getGenerateZoneByName(bindZoneName).unsafeRunSync() shouldBe None
+      } finally {
+        mockGenerateZoneRepository.getGenerateZoneByName(bindZoneName).unsafeRunSync().foreach { existing =>
+          testGenerateZoneServiceBind.handleDeleteGeneratedZoneRequest(existing.id, okAuth).value.unsafeRunSync()
+        }
+      }
     }
   }
 

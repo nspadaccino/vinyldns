@@ -289,7 +289,6 @@ object TestZoneData {
 val createZoneAuthorized = ConnectZoneInput(
     "ok.zone.recordsets.",
     "test@test.com",
-    connection = testConnection,
     adminGroupId = okGroup.id
   )
 
@@ -367,7 +366,6 @@ val updateZoneAuthorized = UpdateZoneInput(
     okZone.id,
     "ok.zone.recordsets.",
     "test@test.com",
-    connection = testConnection,
     adminGroupId = okGroup.id
   )
 

@@ -121,7 +121,7 @@ class ZoneServiceSpec
       mockZoneRepo,
       mockGroupChangeRepo,
       mockRecordSetRepo,
-      mockValidEmailConfigNew)
+      mockValidEmailConfigEmpty)
   )
 
   override protected def beforeEach(): Unit = {
